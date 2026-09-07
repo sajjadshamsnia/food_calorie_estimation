@@ -12,6 +12,8 @@ Detects and localizes food items in an image.
 
 - **Input:** RGB image (single frame)
 - **Output:** list of bounding boxes with confidence scores
+- **Dataset:** UECFOOD256, ECUSTFD
+
 
 ```python
   detect_food(image) -> List[{"bbox": [x_min, y_min, x_max, y_max], "confidence": float}]
@@ -23,6 +25,8 @@ Estimates the food type and calorie value from a localized food image.
 
 - **Input:** cropped image of a single food item (from the detection module's bounding box)
 - **Output:** predicted food label and estimated calorie value
+- **Dataset:** nutrition5k-foodseg103
+
 
 ```python
   estimate_calories(cropped_image) -> {"food_label": str, "calories": float}
