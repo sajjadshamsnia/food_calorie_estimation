@@ -9,3 +9,6 @@ scikit-learn
 tqdm
 opencv-python
 matplotlib
+json
+Path
+Union
