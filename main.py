@@ -1,92 +1,23 @@
-from src.calorie_detection import get_calories
-from src.food_detector import FoodDetector
-
 import tkinter as tk
 import cv2
 import time
 
 from PIL import Image, ImageTk
-from ultralytics import YOLO
+from src.food_detector import FoodDetector
+from src.calorie_detection import get_calories
 
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-MODEL_PATH = "./models/yolov8n.pt"
+MODEL_PATH = "./models/yolov8s_food41_enriched_v1.pt"
 
 CONFIDENCE_THRESHOLD = 0.50
 
 CAMERA_INDEX = 0
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
-
-
-# ============================================================
-# TEMPORARY DEVELOPMENT DATA
-# ============================================================
-#
-# DO NOT build the final system around this.
-#
-# This is only being used until the other groups provide:
-#   1. The real food detection model
-#   2. The real food/portion/calorie data
-#
-# Later, the integration person can replace this entire
-# development lookup with the real pipeline.
-# ============================================================
-
-TEMP_FOOD_DATA = {
-    "apple": {
-        "calories": 95,
-        "portion": "1 medium"
-    },
-
-    "banana": {
-        "calories": 105,
-        "portion": "1 medium"
-    },
-
-    "orange": {
-        "calories": 62,
-        "portion": "1 medium"
-    },
-
-    "pizza": {
-        "calories": 285,
-        "portion": "1 slice"
-    },
-
-    "sandwich": {
-        "calories": 300,
-        "portion": "1 sandwich"
-    },
-
-    "cake": {
-        "calories": 350,
-        "portion": "1 slice"
-    },
-
-    "hot dog": {
-        "calories": 250,
-        "portion": "1 hot dog"
-    },
-
-    "donut": {
-        "calories": 190,
-        "portion": "1 donut"
-    },
-
-    "broccoli": {
-        "calories": 55,
-        "portion": "100 g"
-    },
-
-    "carrot": {
-        "calories": 25,
-        "portion": "1 medium"
-    },
-}
 
 
 # ============================================================
@@ -111,14 +42,19 @@ WHITE = "#FFFFFF"
 
 
 # ============================================================
-# LOAD MODEL
+# LOAD TEAM A DETECTOR
 # ============================================================
 
 try:
-    model = YOLO(MODEL_PATH)
+    food_detector = FoodDetector(
+        model_path=MODEL_PATH,
+        conf=0.25,
+        primary_imgsz=640,
+        fallback_imgsz=1280
+    )
 except Exception as e:
-    model = None
-    print("Could not load YOLO model:")
+    food_detector = None
+    print("Could not load food detector:")
     print(e)
 
 
@@ -600,7 +536,7 @@ def create_food_card(detection):
     name = detection["name"]
     confidence = detection["confidence"]
 
-    calories = detection.get("calories")
+    kcal_per_gram = detection.get("kcal_per_gram")
     portion = detection.get("portion")
 
     # --------------------------------------------------------
@@ -642,14 +578,14 @@ def create_food_card(detection):
     # CALORIES
     # --------------------------------------------------------
 
-    if calories is not None:
+    if kcal_per_gram is not None:
 
-        calorie_text = f"{calories} kcal"
+        calorie_text = f"{kcal_per_gram:.3f} kcal/g"
         calorie_color = ACCENT
 
     else:
 
-        calorie_text = "Calorie estimate pending"
+        calorie_text = "Energy density unavailable"
         calorie_color = TEXT_MUTED
 
     calorie_label = tk.Label(
@@ -702,88 +638,42 @@ def display_detections(detections):
     clear_results()
 
     if not detections:
-
         display_empty_results()
         return
 
-    total_calories = 0
-    calorie_count = 0
-
-    # --------------------------------------------------------
-    # EVERY DETECTION GETS ITS OWN CARD
-    # --------------------------------------------------------
-
     for detection in detections:
+        create_food_card(detection)
 
-        create_food_card(
-            detection
-        )
-
-        calories = detection.get(
-            "calories"
-        )
-
-        if calories is not None:
-
-            total_calories += calories
-            calorie_count += 1
-
-    # --------------------------------------------------------
-    # TOTAL CARD
-    # --------------------------------------------------------
-    #
-    # Kept at the bottom of the result list.
-    #
-    # This is deliberately calculated from the detections,
-    # rather than from a separate hardcoded list.
-    # --------------------------------------------------------
-
-    total_card = tk.Frame(
+    # The Team B JSON contains kcal per gram, not total calories.
+    # Therefore values must not be summed as a total-calorie estimate.
+    summary_card = tk.Frame(
         results_area,
         bg=ACCENT
     )
 
-    total_card.pack(
+    summary_card.pack(
         fill="x",
         padx=5,
         pady=(15, 5)
     )
 
-    total_title = tk.Label(
-        total_card,
-        text="TOTAL ESTIMATE",
+    summary_title = tk.Label(
+        summary_card,
+        text="DETECTED FOODS",
         font=("Segoe UI", 8, "bold"),
         fg="#EDE9FE",
         bg=ACCENT
     )
+    summary_title.pack(anchor="w", padx=14, pady=(12, 0))
 
-    total_title.pack(
-        anchor="w",
-        padx=14,
-        pady=(12, 0)
-    )
-
-    if calorie_count > 0:
-
-        total_text = f"{total_calories} kcal"
-
-    else:
-
-        total_text = "Pending"
-
-    total_value = tk.Label(
-        total_card,
-        text=total_text,
+    summary_value = tk.Label(
+        summary_card,
+        text=str(len(detections)),
         font=("Segoe UI", 20, "bold"),
         fg=WHITE,
         bg=ACCENT
     )
-
-    total_value.pack(
-        anchor="w",
-        padx=14,
-        pady=(2, 12)
-    )
+    summary_value.pack(anchor="w", padx=14, pady=(2, 12))
 
 
 # ============================================================
@@ -792,169 +682,51 @@ def display_detections(detections):
 
 def process_frame(frame):
     """
-    Main processing interface.
+    Team C integration interface.
 
-    This function is intentionally kept separate from the UI.
+    Input:
+        OpenCV webcam frame in BGR format.
 
-    CURRENT:
-        Webcam frame
-            ↓
-        YOLOv8
-            ↓
-        temporary food lookup
-            ↓
-        detection dictionaries
-
-    FINAL:
-        Webcam frame
-            ↓
-        Group 1 detector
-            ↓
-        integration/database
-            ↓
-        Group 2 calorie estimator
-            ↓
-        detection dictionaries
-            ↓
-        UI
-
-    The UI does not need to change when that happens.
+    Pipeline:
+        BGR webcam frame
+            -> RGB conversion
+            -> Team A FoodDetector
+            -> class name / confidence / bbox
+            -> Team B nutrition lookup (kcal per gram)
+            -> UI-compatible detection dictionaries
     """
 
-    return detect_food(frame)
-
-
-def detect_food(frame):
-    """
-    Temporary detector using YOLOv8.
-
-    Returns MULTIPLE detections.
-
-    Example:
-
-    [
-        {
-            "name": "banana",
-            "confidence": 0.91,
-            "bbox": (100, 120, 300, 400),
-            "calories": 105,
-            "portion": "1 medium"
-        },
-
-        {
-            "name": "apple",
-            "confidence": 0.87,
-            "bbox": (400, 100, 550, 300),
-            "calories": 95,
-            "portion": "1 medium"
-        }
-    ]
-
-    Later this function/process_frame() is where the real
-    Group 1 + Group 2 + database pipeline can be connected.
-    """
-
-    if model is None:
-
+    if food_detector is None:
         return []
 
-    detections = []
-
     try:
+        # Team A wrapper expects an RGB NumPy image.
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        team_a_results = food_detector.predict(frame_rgb)
 
-        results = model(
-            frame,
-            conf=CONFIDENCE_THRESHOLD,
-            verbose=False
-        )
+        detections = []
 
-        result = results[0]
+        for item in team_a_results:
+            food_name = str(item["class_name"]).strip().lower()
+            kcal_per_gram = get_calories(food_name)
 
-        if result.boxes is None:
-
-            return []
-
-        # ====================================================
-        # MULTI-DETECTION
-        # ====================================================
-
-        for box in result.boxes:
-
-            confidence = float(
-                box.conf[0]
-            )
-
-            class_id = int(
-                box.cls[0]
-            )
-
-            food_name = model.names[
-                class_id
-            ].lower()
-
-            # -----------------------------------------------
-            # TEMPORARY FOOD FILTER
-            # -----------------------------------------------
-            #
-            # yolov8n.pt is trained on COCO.
-            #
-            # Therefore it can detect people, chairs,
-            # bottles, cars, etc.
-            #
-            # Only known food classes are accepted for now.
-            #
-            # Group 1's food-specific model will replace this.
-            # -----------------------------------------------
-
-            if food_name not in TEMP_FOOD_DATA:
-
+            # Ignore a detection if the nutrition lookup has no matching class.
+            if kcal_per_gram is None:
                 continue
 
-            x1, y1, x2, y2 = map(
-                int,
-                box.xyxy[0]
-            )
-
-            food_data = TEMP_FOOD_DATA[
-                food_name
-            ]
-
-            detection = {
-
+            detections.append({
                 "name": food_name,
+                "confidence": float(item["confidence"]),
+                "bbox": tuple(item["bbox"]),
+                "kcal_per_gram": float(kcal_per_gram),
+                "portion": None
+            })
 
-                "confidence": confidence,
-
-                "bbox": (
-                    x1,
-                    y1,
-                    x2,
-                    y2
-                ),
-
-                # TEMPORARY
-                "calories": food_data[
-                    "calories"
-                ],
-
-                # TEMPORARY
-                "portion": food_data[
-                    "portion"
-                ]
-            }
-
-            detections.append(
-                detection
-            )
+        return detections
 
     except Exception as e:
-
-        print(
-            "Detection error:",
-            e
-        )
-
-    return detections
+        print("Pipeline error:", e)
+        return []
 
 
 # ============================================================
@@ -1001,14 +773,14 @@ def draw_detections(
             f"{confidence * 100:.0f}%"
         )
 
-        calories = detection.get(
-            "calories"
+        kcal_per_gram = detection.get(
+            "kcal_per_gram"
         )
 
-        if calories is not None:
+        if kcal_per_gram is not None:
 
             label += (
-                f" | {calories} kcal"
+                f" | {kcal_per_gram:.3f} kcal/g"
             )
 
         font = cv2.FONT_HERSHEY_SIMPLEX
